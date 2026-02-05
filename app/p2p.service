@@ -1,0 +1,19 @@
+[Unit]
+Description=P2P File Transfer Application
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/p2p
+
+# ここが「venvの中にあるuvicorn」を指定している部分です
+ExecStart=/home/ubuntu/p2p/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8008 --proxy-headers
+
+Restart=always
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

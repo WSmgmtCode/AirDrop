@@ -1,0 +1,192 @@
+#################################################
+# 既存アプリ: wsmgmt-dev.f5.si
+#################################################
+server {
+    listen 80 default_server;
+    server_name wsmgmt-dev.f5.si;
+
+    set_real_ip_from 10.0.0.46;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+    # LBヘルスチェック
+    location = /health {
+        access_log off;
+        return 200 'OK';
+        add_header Content-Type text/plain;
+    }
+
+    # API
+    location /api/ {
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin *;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS, PUT, DELETE";
+            add_header Access-Control-Allow-Headers "*";
+            add_header Access-Control-Max-Age 3600;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:8000/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 60s;
+    }
+
+    # 静的ファイル
+    root /var/www/wsmgmt;
+    index index.html;
+
+    # ---------------------------------------------------------
+    # ★ 追加: /pages/ 配下のファイルは認証が必要
+    # ---------------------------------------------------------
+    location /pages/ {
+        auth_request /internal_auth_check;
+        error_page 401 = @handle_auth_error;
+
+        try_files $uri $uri.html $uri/ =404;
+    }
+
+    # ★ 追加: 認証チェックの実体（内部転送用）
+    location = /internal_auth_check {
+        internal;
+        # FastAPIの root_path="/api" に合わせるため、パスに /api/ を含めます
+        proxy_pass http://127.0.0.1:8000/api/auth_check_nginx;
+
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header X-Original-URI $request_uri;
+
+        # ブラウザのCookieをFastAPIに届ける
+        proxy_set_header Cookie $http_cookie;
+
+        # タイムアウト設定（念のため）
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 5s;
+    }
+
+    # ★ 追加: 未ログイン時のリダイレクト先
+    location @handle_auth_error {
+        return 302 /index.html;
+    }
+    # ---------------------------------------------------------
+
+    location = /register {
+        alias /var/www/wsmgmt/pages/register.html;
+        default_type text/html;
+    }
+
+    location / {
+        try_files $uri $uri.html $uri/ =404;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
+    access_log /var/log/nginx/wsmgmt-access.log main_with_lb;
+    error_log /var/log/nginx/wsmgmt-error.log;
+}
+
+#################################################
+# 新アプリ: sp-dev.f5.si
+#################################################
+server {
+    listen 80;
+    server_name sp-dev.f5.si;
+
+    set_real_ip_from 10.0.0.46;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+    # LBヘルスチェック
+    location = /health {
+        access_log off;
+        return 200 'OK';
+        add_header Content-Type text/plain;
+    }
+
+    # API
+    location /api/ {
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin *;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS, PUT, DELETE";
+            add_header Access-Control-Allow-Headers "*";
+            add_header Access-Control-Max-Age 3600;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 60s;
+    }
+
+    # 静的ファイル
+    root /var/www/sp-dev;
+    index login.html;
+
+    location / {
+        # $uri/ の後に /login.html を入れるのではなく、
+        # 存在するファイルがあればそれを返し、なければ 404 にして Flask 側に任せるか検討
+        try_files $uri $uri.html $uri/ =404;
+        add_header Cache-Control "public, max-age=3600";
+    }
+    error_page 404 /login.html;
+
+    access_log /var/log/nginx/sp-dev-access.log main_with_lb;
+    error_log /var/log/nginx/sp-dev-error.log;
+}
+
+
+#################################################
+# 新アプリ: airdrop.mydns.jp
+#################################################
+server {
+    listen 80;
+    server_name airdrop.mydns.jp;
+
+    set_real_ip_from 10.0.0.46;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+    # LBヘルスチェック
+    location = /health {
+        access_log off;
+        return 200 'OK';
+        add_header Content-Type text/plain;
+    }
+
+    # WebSocket / API (FastAPI)
+    # Socket.IOが /ws でマウントされているため、ここをプロキシします
+    location /ws {
+        proxy_pass http://127.0.0.1:8008/ws; # FastAPIのポートに合わせて調整してください
+        proxy_http_version 1.1;
+        
+        # WebSocketのための重要な設定
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+
+        # WebSocket接続を維持するためのタイムアウト延長
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
+    # 静的ファイル（AirDrop風アプリのフロントエンド）
+    root /var/www/airdrop; # 適切なパスに変更してください
+    index index.html;
+
+    location / {
+        try_files $uri $uri.html $uri/ =404;
+    }
+
+    access_log /var/log/nginx/airdrop-access.log main_with_lb;
+    error_log /var/log/nginx/airdrop-error.log;
+}
