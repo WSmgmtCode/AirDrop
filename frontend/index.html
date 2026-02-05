@@ -3,39 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AirDrop P2P</title>
+    <title>AirDrop</title>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/streamsaver@2.0.3/StreamSaver.min.js"></script>
     <style>
-        :root { --primary: #007bff; --success: #28a745; --danger: #dc3545; --bg: #f8f9fa; }
-        body { font-family: -apple-system, sans-serif; background: var(--bg); padding: 20px; color: #333; display: flex; justify-content: center; }
-        .container { width: 100%; max-width: 450px; background: white; padding: 25px; border-radius: 24px; box-shadow: 0 12px 30px rgba(0,0,0,0.1); }
-        h2 { text-align: center; color: var(--primary); margin-top: 0; }
+        :root { --primary: #007bff; --success: #28a745; --danger: #dc3545; --bg: #f0f2f5; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 10px; display: flex; justify-content: center; min-height: 100vh; }
+        .container { width: 100%; max-width: 400px; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 15px; height: fit-content; }
+        h2 { text-align: center; color: var(--primary); margin: 0; font-size: 1.4em; }
         
-        #drop-area { 
-            border: 2px dashed #cbd5e0; padding: 50px 20px; text-align: center; border-radius: 20px; 
-            cursor: not-allowed; transition: 0.3s; display: block; background: #fafafa; margin-bottom: 20px;
-            opacity: 0.5;
-        }
-        #drop-area.ready { border-color: var(--primary); background: #fff; cursor: pointer; opacity: 1; }
-        #drop-area.highlight { background: #f0f7ff; border-style: solid; }
+        .status-box { text-align: center; padding: 12px; border-radius: 12px; background: #f8f9fa; border: 1px solid #eee; min-height: 50px; display: flex; align-items: center; justify-content: center; }
+        .status-badge { font-size: 0.85em; font-weight: bold; color: #666; }
+        .status-ready { color: var(--success); }
 
-        .status-badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 0.85em; background: #eee; margin-bottom: 15px; font-weight: bold; }
-        .status-online { background: #e6fffa; color: #2c7a7b; }
-        .status-ready { background: #007bff; color: white; }
+        #qr-section { background: #fff; border: 1px solid #eee; border-radius: 15px; padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        #qrcode { line-height: 0; background: #fff; padding: 5px; }
+
+        #drop-area { border: 2px dashed #cbd5e0; padding: 25px 10px; text-align: center; border-radius: 15px; cursor: not-allowed; background: #fafafa; opacity: 0.5; transition: 0.3s; display: flex; flex-direction: column; gap: 5px; }
+        #drop-area.ready { border-color: var(--primary); background: #fff; cursor: pointer; opacity: 1; }
+        .limit-note { font-size: 0.7em; color: var(--danger); background: #fff5f5; padding: 8px; border-radius: 8px; border: 1px solid #feb2b2; margin-top: 5px; display: none; }
+
+        .progress-wrapper { display: none; align-items: center; gap: 10px; margin: 10px 0; }
+        .progress-container { flex: 1; background: #eee; height: 14px; border-radius: 7px; overflow: hidden; }
+        #progress { width: 0%; height: 100%; background: var(--success); transition: width 0.1s linear; }
         
-        .peer-info { font-size: 0.9em; color: #4a5568; margin: 10px 0; padding: 12px; background: #edf2f7; border-radius: 12px; display: none; }
-        .progress-container { width: 100%; background: #edf2f7; height: 10px; border-radius: 5px; overflow: hidden; display: none; margin: 20px 0; }
-        #progress { width: 0%; height: 100%; background: var(--success); }
+        .btn-cancel { background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.75em; font-weight: bold; cursor: pointer; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        #file-list { display: flex; flex-direction: column; gap: 8px; }
+        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f8f9fa; border: 1px solid #eee; border-radius: 10px; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
         
-        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #fff; border: 1px solid #edf2f7; border-radius: 12px; margin-bottom: 10px; }
-        .file-name { font-size: 0.9em; word-break: break-all; margin-right: 10px; flex: 1; }
-        .badge-info { font-size: 0.75em; padding: 4px 10px; border-radius: 10px; background: #eee; }
+        .file-info { display: flex; flex-direction: column; flex: 1; overflow: hidden; margin-right: 10px; }
+        .file-name { font-size: 0.75em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+        .file-meta { font-size: 0.65em; color: #888; }
         
-        .btn-download { 
-            background: var(--success); color: white; text-decoration: none; 
-            padding: 8px 15px; border-radius: 8px; font-size: 0.85em; font-weight: bold;
-            display: inline-block; text-align: center;
-        }
+        .status-tag { font-size: 0.7em; font-weight: bold; padding: 4px 8px; border-radius: 4px; display: flex; align-items: center; gap: 3px; }
+        .tag-sent { background: #e6f4ea; color: var(--success); }
+        .tag-received { background: #e8f0fe; color: var(--primary); }
+        
+        .btn-download { background: var(--success); color: white; text-decoration: none; padding: 5px 12px; border-radius: 6px; font-size: 0.75em; font-weight: bold; }
+        
         input[type="file"] { display: none; }
     </style>
 </head>
@@ -43,184 +52,187 @@
 
 <div class="container">
     <h2>🚀 AirDrop</h2>
-    <div style="text-align: center;">
-        <span id="status" class="status-badge">サーバー接続中...</span>
-        <div id="peer-info" class="peer-info">📍 接続相手: <span id="peer-id">待機中...</span></div>
+    <div class="status-box"><span id="status" class="status-badge">サーバー接続待機中...</span></div>
+    
+    <div id="qr-section">
+        <div id="qrcode"></div>
+        <div style="font-size:0.75em; color:#666; font-weight:bold;">📱 スキャンして接続</div>
     </div>
 
     <label id="drop-area">
         <input type="file" id="fileInput" multiple disabled>
-        <strong id="drop-text">相手の接続を待機中...</strong><br>
-        <span id="drop-subtext" style="color: #718096; font-size: 0.8em;">同じWi-Fiのデバイスで開いてください</span>
+        <strong id="drop-text">接続相手を探しています</strong>
+        <div id="limit-info" class="limit-note">⚠️ 100MB超は Chrome/Safari 推奨</div>
     </label>
 
-    <div class="progress-container" id="p-container"><div id="progress"></div></div>
+    <div class="progress-wrapper" id="p-wrapper">
+        <div class="progress-container"><div id="progress"></div></div>
+        <button id="cancelBtn" class="btn-cancel">中止</button>
+    </div>
+
     <div id="file-list"></div>
 </div>
 
 <script>
     const socket = io({ transports: ['websocket'] });
-    const status = document.getElementById('status');
-    const dropArea = document.getElementById('drop-area');
-    const dropText = document.getElementById('drop-text');
-    const fileInput = document.getElementById('fileInput');
-    const progress = document.getElementById('progress');
-    const pContainer = document.getElementById('p-container');
-    const fileList = document.getElementById('file-list');
-    const peerInfo = document.getElementById('peer-info');
+    const status = document.getElementById('status'), qrSection = document.getElementById('qr-section');
+    const dropArea = document.getElementById('drop-area'), fileInput = document.getElementById('fileInput');
+    const progress = document.getElementById('progress'), pWrapper = document.getElementById('p-wrapper');
+    const fileList = document.getElementById('file-list'), cancelBtn = document.getElementById('cancelBtn');
 
-    let peerConnection, dataChannel, targetPeerSid = null, receivedChunks = [], currentMetadata = null;
-    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
+    let peerConnection, dataChannel, targetPeerSid = null;
+    let fileWriter = null, receivedChunks = [], currentMetadata = null, receivedSize = 0;
+    let isCancelled = false;
+    const BIG_FILE_LIMIT = 100 * 1024 * 1024;
 
-    function setReady(isReady, sid = null) {
-        if (isReady) {
-            targetPeerSid = sid;
-            dropArea.classList.add('ready');
-            fileInput.disabled = false;
-            dropText.innerText = "ファイルを選択";
-            status.innerText = "👥 接続完了";
-            status.classList.add('status-ready');
-            peerInfo.style.display = 'block';
-        } else {
-            targetPeerSid = null;
-            dropArea.classList.remove('ready');
-            fileInput.disabled = true;
-            dropText.innerText = "相手の接続を待機中...";
-            status.innerText = "✅ オンライン";
-            status.classList.remove('status-ready');
-        }
+    new QRCode(document.getElementById("qrcode"), { text: window.location.href, width: 120, height: 120 });
+
+    function startConnection(sid) {
+        if (targetPeerSid || peerConnection) return;
+        targetPeerSid = sid; status.innerText = "⏳ P2Pリンク設定中...";
+        initPeer(true, sid);
     }
 
-    socket.on('connect', () => { status.innerText = "✅ サーバー接続完了"; status.classList.add('status-online'); });
-    socket.on('peer_joined', (data) => { setReady(true, data.id); socket.emit('message', { type: 'ping', to: data.id }); });
-
+    socket.on('peer_joined', data => startConnection(data.id));
     socket.on('message', async data => {
         const fromSid = data.from_sid;
-        if (data.type === 'ping') return setReady(true, fromSid);
-        
+        if (data.type === 'ping') return startConnection(fromSid);
         if (data.type === 'offer') {
+            if (peerConnection && peerConnection.signalingState !== 'stable') return;
             initPeer(false, fromSid);
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
             socket.emit('message', { type: 'answer', sdp: answer, to: fromSid });
-        } else if (data.type === 'answer') {
+        } else if (data.type === 'answer' && peerConnection?.signalingState === 'have-local-offer') {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        } else if (data.type === 'candidate') {
-            if (peerConnection) await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } else if (data.type === 'candidate' && peerConnection?.remoteDescription) {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(e => console.warn(e));
         }
     });
 
     function initPeer(isOffer, targetSid) {
         if (peerConnection) return;
-        peerConnection = new RTCPeerConnection(rtcConfig);
-        peerConnection.onicecandidate = e => {
-            if (e.candidate) socket.emit('message', { type: 'candidate', candidate: e.candidate, to: targetSid });
-        };
+        peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        peerConnection.onicecandidate = e => e.candidate && socket.emit('message', { type: 'candidate', candidate: e.candidate, to: targetSid });
+
         if (isOffer) {
             dataChannel = peerConnection.createDataChannel("fileTransfer", { ordered: true });
             setupDataChannel(dataChannel);
+            peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer))
+                .then(() => socket.emit('message', { type: 'offer', sdp: peerConnection.localDescription, to: targetSid }));
         } else {
             peerConnection.ondatachannel = e => setupDataChannel(e.channel);
         }
     }
 
     function setupDataChannel(channel) {
-        channel.onopen = () => { status.innerText = "⚡ P2Pリンク確立！"; status.style.background = "#28a745"; };
-        channel.onclose = () => setReady(false);
-        channel.onmessage = (e) => {
+        dataChannel = channel;
+        dataChannel.bufferedAmountLowThreshold = 512 * 1024;
+        channel.onopen = () => {
+            qrSection.style.display = 'none'; dropArea.classList.add('ready');
+            fileInput.disabled = false; document.getElementById('limit-info').style.display = 'block';
+            document.getElementById('drop-text').innerText = "ファイルを選択";
+            status.innerText = "⚡ 接続完了！"; status.classList.add('status-ready');
+        };
+
+        channel.onmessage = async e => {
             if (typeof e.data === 'string') {
                 const msg = JSON.parse(e.data);
-                if (msg.type === 'metadata') { currentMetadata = msg; receivedChunks = []; pContainer.style.display = 'block'; }
-                else if (msg.type === 'eof') { saveFile(); pContainer.style.display = 'none'; progress.style.width = '0%'; }
+                if (msg.type === 'metadata') {
+                    currentMetadata = msg; receivedSize = 0; receivedChunks = [];
+                    pWrapper.style.display = 'flex';
+                    if (msg.size > BIG_FILE_LIMIT) {
+                        fileWriter = streamSaver.createWriteStream(msg.name, { size: msg.size }).getWriter();
+                    }
+                } else if (msg.type === 'eof') { await finalizeFile(); }
+                else if (msg.type === 'cancel') { alert("相手が中断しました"); location.reload(); }
             } else {
-                receivedChunks.push(e.data);
-                if (currentMetadata) {
-                    const currentSize = receivedChunks.reduce((a, c) => a + c.byteLength, 0);
-                    progress.style.width = (currentSize / currentMetadata.size * 100) + '%';
-                }
+                if (fileWriter) await fileWriter.write(new Uint8Array(e.data));
+                else receivedChunks.push(e.data);
+                receivedSize += e.data.byteLength;
+                progress.style.width = (receivedSize / currentMetadata.size * 100) + '%';
             }
         };
     }
 
-    fileInput.onchange = async () => {
-        if (!targetPeerSid || fileInput.disabled) return;
-        initPeer(true, targetPeerSid);
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        socket.emit('message', { type: 'offer', sdp: offer, to: targetPeerSid });
-
-        const checkInterval = setInterval(async () => {
-            if (dataChannel?.readyState === 'open') {
-                clearInterval(checkInterval);
-                pContainer.style.display = 'block';
-                for (let f of fileInput.files) {
-                    const item = addSentFileStatus(f.name);
-                    await sendFile(f, item);
-                }
-                pContainer.style.display = 'none';
-                fileInput.value = "";
-                status.innerText = "✅ 送信完了";
-            }
-        }, 1000);
-    };
-
-    function addSentFileStatus(name) {
-        const item = document.createElement('div');
-        item.className = 'file-item';
-        item.innerHTML = `<span class="file-name">${name}</span><span class="badge-info">送信中...</span>`;
-        fileList.prepend(item);
-        return item;
+    async function finalizeFile() {
+        pWrapper.style.display = 'none';
+        const name = currentMetadata.name;
+        const size = (currentMetadata.size / (1024*1024)).toFixed(1) + "MB";
+        let url = null;
+        if (fileWriter) { await fileWriter.close(); fileWriter = null; } 
+        else {
+            const blob = new Blob(receivedChunks);
+            url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+        }
+        addFileListUI(name, size, url, false);
     }
 
-    async function sendFile(file, item) {
+    function addFileListUI(name, size, url, isSender) {
+        const item = document.createElement('div');
+        item.className = 'file-item';
+        const statusHtml = isSender ? 
+            `<span class="status-tag tag-sent">✓ 送信済み</span>` : 
+            `<div style="display:flex; align-items:center; gap:5px;"><span class="status-tag tag-received">✓ 受信済</span>
+             <a href="${url || '#'}" ${url ? `download="${name}"` : 'onclick="alert(\'大容量ファイルはフォルダを確認\')"'} class="btn-download">再保存</a></div>`;
+
+        item.innerHTML = `
+            <div class="file-info">
+                <span class="file-name">${name}</span>
+                <span class="file-meta">${size}</span>
+            </div>
+            ${statusHtml}`;
+        fileList.prepend(item);
+    }
+
+    cancelBtn.onclick = () => {
+        if (!confirm("転送を中止しますか？")) return;
+        isCancelled = true;
+        if (dataChannel?.readyState === 'open') dataChannel.send(JSON.stringify({ type: 'cancel' }));
+        setTimeout(() => location.reload(), 500);
+    };
+
+    fileInput.onchange = async () => {
+        if (dataChannel?.readyState !== 'open') return;
+        pWrapper.style.display = 'flex';
+        isCancelled = false;
+        for (let f of fileInput.files) {
+            if (isCancelled) break;
+            await sendFile(f);
+            // 送信完了後にリストに追加
+            addFileListUI(f.name, (f.size / (1024*1024)).toFixed(1) + "MB", null, true);
+        }
+        pWrapper.style.display = 'none';
+        fileInput.value = "";
+    };
+
+    async function sendFile(file) {
         return new Promise(resolve => {
             dataChannel.send(JSON.stringify({ type: 'metadata', name: file.name, size: file.size }));
             const reader = new FileReader();
-            let offset = 0, chunkSize = 16384;
-            reader.onload = e => {
-                dataChannel.send(e.target.result);
-                offset += e.target.result.byteLength;
-                progress.style.width = (offset / file.size * 100) + '%';
-                if (offset < file.size) read();
-                else {
+            let offset = 0, chunkSize = 16384 * 4, bufferThreshold = 1024 * 1024;
+            const readNext = () => {
+                if (isCancelled) return resolve();
+                if (offset < file.size) {
+                    if (dataChannel.bufferedAmount > bufferThreshold) {
+                        dataChannel.onbufferedamountlow = () => { dataChannel.onbufferedamountlow = null; readNext(); };
+                        return;
+                    }
+                    reader.readAsArrayBuffer(file.slice(offset, offset + chunkSize));
+                } else {
                     dataChannel.send(JSON.stringify({ type: 'eof' }));
-                    item.querySelector('.badge-info').innerText = "完了 ✅";
                     setTimeout(resolve, 500);
                 }
             };
-            const read = () => reader.readAsArrayBuffer(file.slice(offset, offset + chunkSize));
-            read();
+            reader.onload = e => {
+                try { dataChannel.send(e.target.result); offset += e.target.result.byteLength;
+                    progress.style.width = (offset / file.size * 100) + '%'; readNext();
+                } catch (err) { setTimeout(readNext, 100); }
+            };
+            readNext();
         });
-    }
-
-    function saveFile() {
-        if (!currentMetadata || receivedChunks.length === 0) return;
-        const blob = new Blob(receivedChunks, { type: 'application/octet-stream' });
-        const url = URL.createObjectURL(blob);
-        const name = currentMetadata.name;
-
-        const item = document.createElement('div');
-        item.className = 'file-item';
-        item.innerHTML = `
-            <span class="file-name">${name}</span>
-            <a href="${url}" download="${name}" target="_blank" class="btn-download">保存</a>
-        `;
-        fileList.prepend(item);
-
-        // Via対策: ユーザーにボタンを「手動で」押させるのが最も確実ですが、自動クリックも試みます
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = name;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        setTimeout(() => {
-            try { a.click(); } catch(e) {}
-            document.body.removeChild(a);
-        }, 100);
-
-        // ViaなどのブラウザではすぐにURLを破棄すると保存に失敗するため、3分間維持します
-        setTimeout(() => URL.revokeObjectURL(url), 180000);
     }
 </script>
 </body>
