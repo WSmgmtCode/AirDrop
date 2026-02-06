@@ -14,9 +14,10 @@
         .container { width: 100%; max-width: 400px; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 15px; height: fit-content; }
         h2 { text-align: center; color: var(--primary); margin: 0; font-size: 1.4em; }
         
-        .status-box { text-align: center; padding: 12px; border-radius: 12px; background: #f8f9fa; border: 1px solid #eee; min-height: 50px; display: flex; align-items: center; justify-content: center; }
+        .status-box { text-align: center; padding: 12px; border-radius: 12px; background: #f8f9fa; border: 1px solid #eee; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
         .status-badge { font-size: 0.85em; font-weight: bold; color: #666; }
         .status-ready { color: var(--success); }
+        .stats-detail { font-size: 0.7em; color: #888; display: flex; gap: 8px; font-family: monospace; }
 
         #qr-section { background: #fff; border: 1px solid #eee; border-radius: 15px; padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
         #qrcode { line-height: 0; background: #fff; padding: 5px; }
@@ -29,22 +30,17 @@
         .progress-container { flex: 1; background: #eee; height: 14px; border-radius: 7px; overflow: hidden; }
         #progress { width: 0%; height: 100%; background: var(--success); transition: width 0.1s linear; }
         
-        .btn-cancel { background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.75em; font-weight: bold; cursor: pointer; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .btn-cancel { background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.75em; font-weight: bold; cursor: pointer; flex-shrink: 0; }
 
         #file-list { display: flex; flex-direction: column; gap: 8px; }
-        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f8f9fa; border: 1px solid #eee; border-radius: 10px; animation: fadeIn 0.3s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
-        
+        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f8f9fa; border: 1px solid #eee; border-radius: 10px; }
         .file-info { display: flex; flex-direction: column; flex: 1; overflow: hidden; margin-right: 10px; }
         .file-name { font-size: 0.75em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
         .file-meta { font-size: 0.65em; color: #888; }
-        
-        .status-tag { font-size: 0.7em; font-weight: bold; padding: 4px 8px; border-radius: 4px; display: flex; align-items: center; gap: 3px; }
+        .status-tag { font-size: 0.7em; font-weight: bold; padding: 4px 8px; border-radius: 4px; }
         .tag-sent { background: #e6f4ea; color: var(--success); }
         .tag-received { background: #e8f0fe; color: var(--primary); }
-        
         .btn-download { background: var(--success); color: white; text-decoration: none; padding: 5px 12px; border-radius: 6px; font-size: 0.75em; font-weight: bold; }
-        
         input[type="file"] { display: none; }
     </style>
 </head>
@@ -52,7 +48,13 @@
 
 <div class="container">
     <h2>🚀 AirDrop</h2>
-    <div class="status-box"><span id="status" class="status-badge">サーバー接続待機中...</span></div>
+    <div class="status-box">
+        <span id="status" class="status-badge">サーバー接続待機中...</span>
+        <div id="stats-info" class="stats-detail" style="display: none;">
+            <span id="conn-type">Type: ---</span>
+            <span id="bitrate">0.00 Mbps</span>
+        </div>
+    </div>
     
     <div id="qr-section">
         <div id="qrcode"></div>
@@ -79,10 +81,12 @@
     const dropArea = document.getElementById('drop-area'), fileInput = document.getElementById('fileInput');
     const progress = document.getElementById('progress'), pWrapper = document.getElementById('p-wrapper');
     const fileList = document.getElementById('file-list'), cancelBtn = document.getElementById('cancelBtn');
+    const statsInfo = document.getElementById('stats-info'), connTypeLabel = document.getElementById('conn-type'), bitrateLabel = document.getElementById('bitrate');
 
     let peerConnection, dataChannel, targetPeerSid = null;
     let fileWriter = null, receivedChunks = [], currentMetadata = null, receivedSize = 0;
     let isCancelled = false;
+    let lastBytes = 0, statsInterval = null;
     const BIG_FILE_LIMIT = 100 * 1024 * 1024;
 
     new QRCode(document.getElementById("qrcode"), { text: window.location.href, width: 120, height: 120 });
@@ -134,6 +138,7 @@
             fileInput.disabled = false; document.getElementById('limit-info').style.display = 'block';
             document.getElementById('drop-text').innerText = "ファイルを選択";
             status.innerText = "⚡ 接続完了！"; status.classList.add('status-ready');
+            startStatsMonitor();
         };
 
         channel.onmessage = async e => {
@@ -156,6 +161,29 @@
         };
     }
 
+    function startStatsMonitor() {
+        statsInfo.style.display = 'flex';
+        statsInterval = setInterval(async () => {
+            if (!peerConnection) return;
+            const stats = await peerConnection.getStats();
+            stats.forEach(report => {
+                // 接続タイプの取得
+                if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                    const localCand = stats.get(report.localCandidateId);
+                    const typeMap = { host: 'ローカル', srflx: '直接(P2P)', relay: '中継', prflx: '直接(P2P)' };
+                    connTypeLabel.innerText = `接続: ${typeMap[localCand.candidateType] || localCand.candidateType}`;
+                }
+                // 転送速度の計算 (DataChannel経由の合計)
+                if (report.type === 'data-channel') {
+                    const bytes = report.bytesSent + report.bytesReceived;
+                    const mbps = (((bytes - lastBytes) * 8) / (1024 * 1024)).toFixed(2);
+                    bitrateLabel.innerText = `${mbps} Mbps`;
+                    lastBytes = bytes;
+                }
+            });
+        }, 1000);
+    }
+
     async function finalizeFile() {
         pWrapper.style.display = 'none';
         const name = currentMetadata.name;
@@ -176,14 +204,9 @@
         const statusHtml = isSender ? 
             `<span class="status-tag tag-sent">✓ 送信済み</span>` : 
             `<div style="display:flex; align-items:center; gap:5px;"><span class="status-tag tag-received">✓ 受信済</span>
-             <a href="${url || '#'}" ${url ? `download="${name}"` : 'onclick="alert(\'大容量ファイルはフォルダを確認\')"'} class="btn-download">再保存</a></div>`;
+             <a href="${url || '#'}" ${url ? `download="${name}"` : 'onclick="alert(\'大容量ファイルは保存済みです\')"'} class="btn-download">再保存</a></div>`;
 
-        item.innerHTML = `
-            <div class="file-info">
-                <span class="file-name">${name}</span>
-                <span class="file-meta">${size}</span>
-            </div>
-            ${statusHtml}`;
+        item.innerHTML = `<div class="file-info"><span class="file-name">${name}</span><span class="file-meta">${size}</span></div>${statusHtml}`;
         fileList.prepend(item);
     }
 
@@ -201,7 +224,6 @@
         for (let f of fileInput.files) {
             if (isCancelled) break;
             await sendFile(f);
-            // 送信完了後にリストに追加
             addFileListUI(f.name, (f.size / (1024*1024)).toFixed(1) + "MB", null, true);
         }
         pWrapper.style.display = 'none';
@@ -227,8 +249,11 @@
                 }
             };
             reader.onload = e => {
-                try { dataChannel.send(e.target.result); offset += e.target.result.byteLength;
-                    progress.style.width = (offset / file.size * 100) + '%'; readNext();
+                try { 
+                    dataChannel.send(e.target.result); 
+                    offset += e.target.result.byteLength;
+                    progress.style.width = (offset / file.size * 100) + '%'; 
+                    readNext();
                 } catch (err) { setTimeout(readNext, 100); }
             };
             readNext();
